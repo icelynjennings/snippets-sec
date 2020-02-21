@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-ingress-default-backend
+  namespace: monitoring
+  labels:
+    app: nginx-ingress
+    component: default-backend
+spec:
+  ports:
+    - port: 80
+      targetPort: 8080
+  selector:
+    app: nginx-ingress
+    component: default-backend

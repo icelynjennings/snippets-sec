@@ -1,0 +1,103 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-ingress-controller
+  namespace: monitoring
+data:
+  use-forwarded-headers: "true"
+  http-snippet: |
+    proxy_cache_path        /var/run/cache levels=1:2 keys_zone=authentication:10m inactive=3s;
+
+    # Create variable so we can tell the difference between traffic from the
+    # internet and requests from the ingress controller itself
+    map "$http_host:$http_x_sent_from" $is_external {
+        default "1";
+        "127.0.0.1:nginx-ingress-controller"  "0";
+    }
+  server-snippet: |
+    location = /oauth2/auth {
+                # Reject requests from outside of the ingress controller
+                if ($is_external) {
+                    return 403;
+                }
+
+                # Configure proxying to auth
+                set $proxy_upstream_name "oauth-proxy";
+
+                proxy_pass_request_body     off;
+                proxy_set_header            Content-Length "";
+
+                proxy_set_header            Host                    auth.icelyn.io;
+                proxy_set_header            X-Original-URL          $scheme://$http_host$request_uri;
+                proxy_set_header            X-Original-Method       $request_method;
+                proxy_set_header            X-Auth-Request-Redirect $request_uri;
+                proxy_set_header            X-Sent-From             "nginx-ingress-controller";
+
+                proxy_http_version          1.1;
+                proxy_ssl_server_name       on;
+                proxy_pass_request_headers  on;
+                client_max_body_size        "1m";
+
+                # Cache responses from the auth proxy
+                proxy_cache                   authentication;
+                proxy_cache_key               $cookie_icelynkubernetesoauth;
+                proxy_cache_valid             202 401 3s;
+                proxy_cache_lock              on;
+
+                # Should still cache even with Set-Cookie
+                proxy_ignore_headers          Set-Cookie;
+
+                proxy_buffering on;
+                proxy_buffer_size 128k;
+                proxy_buffers 4 256k;
+                proxy_busy_buffers_size 256k;
+
+                add_header X-Cache-Status $upstream_cache_status always;
+
+                set $target https://auth.icelyn.io/oauth2/auth;
+                proxy_pass $target;
+              }
+
+            location = /oauth2/auth-staging {
+                # Reject requests from outside of the ingress controller
+                if ($is_external) {
+                    return 403;
+                }
+
+                # Configure proxying to auth
+                set $proxy_upstream_name "oauth-proxy-staging";
+
+                proxy_pass_request_body     off;
+                proxy_set_header            Content-Length "";
+
+                proxy_set_header            Host                    auth-staging.icelyn.io;
+                proxy_set_header            X-Original-URL          $scheme://$http_host$request_uri;
+                proxy_set_header            X-Original-Method       $request_method;
+                proxy_set_header            X-Auth-Request-Redirect $request_uri;
+                proxy_set_header            X-Sent-From             "nginx-ingress-controller";
+
+                proxy_http_version          1.1;
+                proxy_ssl_server_name       on;
+                proxy_pass_request_headers  on;
+                client_max_body_size        "1m";
+
+                # Cache responses from the auth proxy
+                proxy_cache                   authentication;
+                proxy_cache_key               $cookie_icelynkubernetesoauthstaging;
+                proxy_cache_valid             202 401 3s;
+                proxy_cache_lock              on;
+
+                # Should still cache even with Set-Cookie
+                proxy_ignore_headers          Set-Cookie;
+
+                proxy_buffering on;
+                proxy_buffer_size 128k;
+                proxy_buffers 4 256k;
+                proxy_busy_buffers_size 256k;
+
+                add_header X-Cache-Status $upstream_cache_status always;
+
+                set $target https://auth-staging.icelyn.io/oauth2/auth;
+                proxy_pass $target;
+              }

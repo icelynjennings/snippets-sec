@@ -1,0 +1,114 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  labels:
+    app: dex
+  name: dex
+  namespace: auth
+spec:
+  replicas: 3
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: dex
+  template:
+    metadata:
+      labels:
+        app: dex
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - dex
+                topologyKey: failure-domain.beta.kubernetes.io/zone
+      initContainers:
+        - name: init-config
+          image: busybox
+          command:
+            - sh
+            - -c
+            - "set -e\n while [ ! -e /etc/dex-stage/config.yaml ]; do sleep 1; done;\n
+              cp /etc/dex-stage/config.yaml /etc/dex/config.yaml\n
+              sed -i \"s|%issuer_host%|$issuer_host|g\" /etc/dex/config.yaml\n
+              sed -i \"s|%google_client_id%|$google_client_id|g\" /etc/dex/config.yaml\n
+              sed -i \"s|%google_client_secret%|$google_client_secret|g\" /etc/dex/config.yaml\n
+              sed -i \"s|%kubernetes_client_secret%|$kubernetes_client_secret|g\" /etc/dex/config.yaml\n
+              sed -i \"s|%oauth2_client_secret%|$oauth2_client_secret|g\" /etc/dex/config.yaml"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/dex-stage/config.yaml
+              subPath: config.yaml
+            - name: shared
+              mountPath: /etc/dex
+          env:
+            - name: issuer_host
+              value: "auth{{- if eq .ClusterImageLifecycleTag `staging` -}}-staging{{- end -}}.icelyn.io"
+            - name: google_client_id
+              valueFrom:
+                secretKeyRef:
+                  name: dex
+                  key: google-client-id
+            - name: google_client_secret
+              valueFrom:
+                secretKeyRef:
+                  name: dex
+                  key: google-client-secret
+            - name: kubernetes_client_secret
+              valueFrom:
+                secretKeyRef:
+                  name: dex
+                  key: kubernetes-client-secret
+            - name: oauth2_client_secret
+              valueFrom:
+                secretKeyRef:
+                  name: dex
+                  key: oauth2-client-secret
+      containers:
+        - name: dex
+          image: dex:google-groups
+          ports:
+            - containerPort: 80
+              protocol: TCP
+          args:
+            - serve
+            - /etc/dex/config.yaml
+          resources:
+            requests:
+              cpu: 10m
+              memory: 20Mi
+            limits:
+              cpu: 100m
+              memory: 100Mi
+          volumeMounts:
+            - name: shared
+              mountPath: /etc/dex
+            - name: secret
+              mountPath: /etc/dex/service-account.json
+              subPath: service-account.json
+          livenessProbe:
+            httpGet:
+              scheme: HTTP
+              path: /dex/healthz
+              port: 80
+            initialDelaySeconds: 30
+            timeoutSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: dex
+        - name: shared
+          emptyDir: {}
+        - name: secret
+          secret:
+            secretName: dex
+            items:
+              - key: service-account.json
+                path: service-account.json
+      serviceAccountName: dex

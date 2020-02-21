@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kube-proxy
+  namespace: kube-system
+  labels:
+    k8s-app: kube-proxy
+data:
+  config.yaml: |
+    apiVersion: kubeproxy.config.k8s.io/v1alpha1
+    kind: KubeProxyConfiguration
+    clientConnection:
+      kubeconfig: /etc/kubernetes/proxy-config/kubeconfig.yaml
+    hostnameOverride: %NODE_NAME%
+    mode: iptables
+    metricsBindAddress: 0.0.0.0:10249
+    clusterCIDR: 10.2.0.0/16
+    conntrack:
+      # maxPerCore is the maximum number of NAT connections to track per CPU core (0 to leave the limit as-is and ignore conntrackMin).
+      maxPerCore: 65536
+      # NOTE: these need to be set to 0 for maxPerCore to actually take affect.
+      max: 0
+      min: 0
+  kubeconfig.yaml: |
+    apiVersion: v1
+    kind: Config
+    clusters:
+    - cluster:
+        certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        server: https://kubeapi.{{ .ClusterName }}
+      name: default
+    contexts:
+    - context:
+        cluster: default
+        namespace: default
+        user: default
+      name: default
+    current-context: default
+    users:
+    - name: default
+      user:
+        tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token

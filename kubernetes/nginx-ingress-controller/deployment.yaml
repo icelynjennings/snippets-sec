@@ -1,0 +1,108 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: nginx-ingress-controller
+  namespace: monitoring
+  labels:
+    app: nginx-ingress
+    component: controller
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx-ingress
+      component: controller
+  template:
+    metadata:
+      labels:
+        app: nginx-ingress
+        component: controller
+    spec:
+      serviceAccountName: nginx-ingress-controller
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - nginx-ingress
+                  - key: component
+                    operator: In
+                    values:
+                      - controller
+              topologyKey: kubernetes.io/hostname
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - nginx-ingress
+                  - key: component
+                    operator: In
+                    values:
+                      - controller
+              topologyKey: failure-domain.beta.kubernetes.io/zone
+      terminationGracePeriodSeconds: 60
+      tolerations:
+      - key: node-role.kubernetes.io/support
+        operator: Exists
+        effect: NoSchedule
+      nodeSelector:
+        "node-role.kubernetes.io/support": "true"
+      containers:
+        - image: quay.io/kubernetes-ingress-controller/nginx-ingress-controller:0.22.0
+          name: nginx-ingress-controller
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 10254
+              scheme: HTTP
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 10254
+              scheme: HTTP
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          args:
+            - /nginx-ingress-controller
+            - --default-backend-service=$(POD_NAMESPACE)/nginx-ingress-default-backend
+            - --ingress-class=monitoring
+            - --annotations-prefix=ingress.kubernetes.io
+            - --configmap=$(POD_NAMESPACE)/nginx-ingress-controller
+          securityContext:
+            capabilities:
+                drop:
+                - ALL
+                add:
+                - NET_BIND_SERVICE
+            # www-data -> 33
+            runAsUser: 33
+          volumeMounts:
+            - name: cache
+              mountPath: "/var/run/cache"
+      volumes:
+        - name: cache
+          emptyDir: {}
+
